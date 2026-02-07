@@ -29,6 +29,7 @@ let firebaseConfig;
 let appId = 'chenti-essay-system-v1';
 
 // [重要] 請在此設定您的管理員 Email (必須與 Firebase Authentication 中建立的一致)
+// 請將 'admin@example.com' 修改為您真正的管理員帳號
 const ADMIN_EMAIL = 'chenti.chinese@gmail.com'; 
 
 // 1. 嘗試讀取預覽環境變數 (Canvas 預覽用)
@@ -209,6 +210,7 @@ export default function App() {
   useEffect(() => {
     if (!auth) return;
 
+    // 檢查是否有 Custom Token (預覽環境用)，否則不自動登入，等待使用者操作
     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
         signInWithCustomToken(auth, __initial_auth_token);
     }
@@ -216,6 +218,9 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
+          console.log("Current User Email:", u.email); // 除錯用
+          console.log("Expected Admin Email:", ADMIN_EMAIL); // 除錯用
+
           // [修正] 優先判斷是否為管理員
           // 如果登入的 Email 等於程式碼設定的 ADMIN_EMAIL，直接視為管理員，不查資料庫
           if (u.email && u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
@@ -336,10 +341,15 @@ export default function App() {
   };
 
   const handleAdminLogin = async (credentials) => {
+      // [修正] 防呆檢查：確認輸入的 Email 與 ADMIN_EMAIL 常數一致
+      if (credentials.username.trim().toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+          showNotification(`錯誤：此帳號 (${credentials.username}) 並非系統設定的管理員 Email。\n請檢查程式碼中的 ADMIN_EMAIL 設定。`, 'error');
+          return;
+      }
+
       try {
         await signInWithEmailAndPassword(auth, credentials.username, credentials.password);
-        // [修正] 這裡不需要手動 setView，因為 auth 狀態改變會觸發 useEffect
-        // useEffect 裡面的邏輯會判斷 email === ADMIN_EMAIL 然後自動轉導
+        // Auth 狀態改變會觸發 useEffect 自動轉頁
       } catch (error) {
           console.error("Login Error:", error);
           let msg = "登入失敗";
@@ -2540,6 +2550,105 @@ function AdminDashboard({ users, submissions, announcement, onLogout, showNotifi
                 >
                   <Trash2 size={18} /> 刪除此學員資料
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批改 Modal */}
+      {gradingItem && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-75 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col md:flex-row overflow-hidden">
+            
+            {/* Header (新增導航) */}
+            <div className="absolute top-4 left-4 z-20 flex gap-2">
+               <button onClick={() => navigateSubmission('prev')} className="bg-white/20 hover:bg-white/40 text-white px-3 py-2 rounded-lg flex items-center gap-1 backdrop-blur-sm transition"><ChevronLeft size={20}/> 上一篇</button>
+               <button onClick={() => navigateSubmission('next')} className="bg-white/20 hover:bg-white/40 text-white px-3 py-2 rounded-lg flex items-center gap-1 backdrop-blur-sm transition">下一篇 <ChevronRight size={20}/></button>
+            </div>
+
+            <div className="md:w-2/3 bg-gray-900 p-4 flex flex-col items-center justify-center relative min-h-[400px]">
+              {/* 多圖切換按鈕 (如果有多張) */}
+              {(gradingItem.imageUrls?.length > 1) && (
+                  <>
+                    <button onClick={() => setCurrentImgIndex(p => Math.max(0, p - 1))} className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/20 p-2 rounded-full text-white hover:bg-white/40 z-20"><ChevronLeft size={24}/></button>
+                    <button onClick={() => setCurrentImgIndex(p => Math.min(gradingItem.imageUrls.length - 1, p + 1))} className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/20 p-2 rounded-full text-white hover:bg-white/40 z-20"><ChevronRight size={24}/></button>
+                  </>
+              )}
+
+              {/* 工具列 */}
+              <div className="absolute top-4 right-4 flex space-x-2 z-10">
+                 {/* 旋轉控制 */}
+                 <button onClick={() => setImageRotation(r => r - 90)} className="bg-white/20 hover:bg-white/40 text-white p-2 rounded" title="向左旋轉"><RotateCcw size={20}/></button>
+                 <button onClick={() => setImageRotation(r => r + 90)} className="bg-white/20 hover:bg-white/40 text-white p-2 rounded" title="向右旋轉"><RotateCw size={20}/></button>
+                 
+                 <div className="w-4"></div> {/* Spacer */}
+
+                 {/* 縮放控制 */}
+                 <button onClick={() => setImageZoom(z => z + 0.2)} className="bg-white/20 hover:bg-white/40 text-white p-2 rounded" title="放大"><ZoomIn size={20}/></button>
+                 <button onClick={() => setImageZoom(z => Math.max(0.5, z - 0.2))} className="bg-white/20 hover:bg-white/40 text-white p-2 rounded" title="縮小"><ZoomOut size={20}/></button>
+                 <a href={currentGradingImage} download={`essay_${gradingItem.studentName}.jpg`} className="bg-white/20 hover:bg-white/40 text-white p-2 rounded" title="下載原圖"><Download size={20}/></a>
+              </div>
+
+              {/* 亮度滑桿 (置於底部) */}
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 px-4 py-2 rounded-full text-white z-10 w-64">
+                <Sun size={16} className="opacity-70" />
+                <input type="range" min="50" max="150" value={imageBrightness} onChange={(e) => setImageBrightness(e.target.value)} className="w-full h-1 bg-gray-400 rounded-lg appearance-none cursor-pointer" />
+              </div>
+
+              <div className="overflow-auto w-full h-full flex items-center justify-center bg-gray-800/50 rounded-lg">
+                <img 
+                  src={currentGradingImage} 
+                  alt="Essay" 
+                  className="transition-all duration-300 ease-out max-w-none origin-center"
+                  style={{ 
+                    transform: `scale(${imageZoom}) rotate(${imageRotation}deg)`,
+                    filter: `brightness(${imageBrightness}%)`
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="md:w-1/3 p-6 bg-white flex flex-col border-l border-gray-200">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                   <h3 className="text-xl font-bold text-gray-800">批改作業</h3>
+                   <p className="text-sm text-gray-500">{gradingItem.studentName} - {formatDateTime(gradingItem.date)}</p>
+                </div>
+                <button onClick={() => setGradingItem(null)} className="text-gray-400 hover:text-gray-600"><XCircle size={24}/></button>
+              </div>
+
+              <div className="space-y-4 flex-1 overflow-y-auto">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    {(() => {
+                      const currentMax = getMaxScore(gradingItem.topic);
+                      return (
+                        <>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">得分 (滿分{currentMax})</label>
+                          <input type="number" min="0" max={currentMax} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-lg font-bold text-indigo-700" value={gradingData.score} onChange={e => setGradingData({...gradingData, score: e.target.value})} />
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex justify-between items-center">
+                    老師評語
+                  </label>
+                  <textarea rows="8" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none" placeholder="請輸入評語..." value={gradingData.comment} onChange={e => setGradingData({...gradingData, comment: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-gray-100 flex flex-col gap-3">
+                 <div className="flex gap-3">
+                    <button onClick={() => setGradingItem(null)} className="flex-1 py-3 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">暫存 / 取消</button>
+                    <button onClick={() => saveGrading(false)} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow">完成並關閉</button>
+                 </div>
+                 <button onClick={() => saveGrading(true)} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow flex items-center justify-center gap-2">
+                    <Save size={18} /> 儲存並評下一篇
+                 </button>
               </div>
             </div>
           </div>
